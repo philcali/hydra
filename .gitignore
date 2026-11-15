@@ -1,0 +1,13 @@
+# Cargo build artifacts
+target/
+
+# Local tooling / editor / OS state
+.claude/
+.DS_Store
+.idea/
+.vscode/
+
+# Runtime / test-generated data
+*.db
+*.sqlite
+*.sqlite3

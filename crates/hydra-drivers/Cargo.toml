@@ -1,0 +1,15 @@
+[package]
+name = "hydra-drivers"
+version.workspace = true
+edition.workspace = true
+license.workspace = true
+
+[dependencies]
+mbse = { workspace = true }
+mbse-graph = { workspace = true }
+tokio = { workspace = true }
+serde = { workspace = true }
+serde_json = { workspace = true }
+tracing = { workspace = true }
+thiserror = "1"
+async-trait = "0.1"

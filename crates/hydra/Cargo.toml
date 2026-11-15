@@ -1,0 +1,20 @@
+[package]
+name = "hydra-hydra"
+version.workspace = true
+edition.workspace = true
+license.workspace = true
+
+[dependencies]
+hydra-auth = { path = "../hydra-auth" }
+hydra-catalog = { path = "../hydra-catalog" }
+hydra-discovery = { path = "../hydra-discovery" }
+hydra-drivers = { path = "../hydra-drivers" }
+hydra-telemetry = { path = "../hydra-telemetry" }
+hydra-audit = { path = "../hydra-audit" }
+thiserror = "1"
+mbse = { workspace = true }
+mbse-graph = { workspace = true }
+tokio = { workspace = true }
+serde = { workspace = true }
+serde_json = { workspace = true }
+tracing = { workspace = true }
