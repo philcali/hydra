@@ -154,3 +154,89 @@ async fn test_collect_telemetry_pulls_per_device() {
         .iter()
         .any(|p| p.device == "sensor-1" && p.metric == "temp_c" && p.value == 21.5));
 }
+
+/// Verifies REQ-034: a consumer reacts to a discovery event to drive the
+/// provisioning workflow — register the device, bind its driver, and assign
+/// it to the policy fleet.
+#[links_to("REQ-034")]
+#[tokio::test]
+async fn test_provisioner_provisions_discovered_device() {
+    use crate::provisioning::Provisioner;
+    use hydra_catalog::{CatalogService, FleetManager, SqliteStore};
+    use hydra_drivers::{DriverRegistry, ModbusDriver};
+
+    let test_no = TEST_NO.fetch_add(1, std::sync::atomic::Ordering::SeqCst);
+    let path = std::env::temp_dir()
+        .join(format!("hydra-prov-{}-{}.db", std::process::id(), test_no))
+        .to_string_lossy()
+        .to_string();
+    let _ = std::fs::remove_file(&path);
+
+    let store = SqliteStore::new(path.clone());
+    store.init().await.unwrap();
+    let catalog = CatalogService::new(store);
+
+    let fleet_store = SqliteStore::new(path.clone());
+    fleet_store.init().await.unwrap();
+    let fleets = FleetManager::new(fleet_store);
+
+    let mut registry = DriverRegistry::new();
+    registry
+        .register(Arc::new(ModbusDriver::new(Arc::new(SimDevice::new(0)))) as Arc<dyn Driver>)
+        .unwrap();
+
+    let provisioner = Provisioner::new(catalog, fleets, registry, "prod");
+
+    let event = hydra_telemetry::MetricEvent {
+        kind: MetricKind::DeviceDiscovered {
+            vendor: "acme".into(),
+            device_type: "plc".into(),
+        },
+        device: "10.1.1.77".into(),
+        ts_ms: 0,
+    };
+
+    let provisioned = provisioner.handle_discovered(&event).await.unwrap();
+    assert_eq!(provisioned.device_id, "10.1.1.77"); // registered
+    assert_eq!(provisioned.fleet_id, "prod"); // assigned to the policy fleet
+    assert!(provisioned.driver_bound); // acme/plc has a driver
+}
+
+/// Verifies REQ-034: the consumer only reacts to discovery events — other
+/// event kinds are ignored.
+#[links_to("REQ-034")]
+#[tokio::test]
+async fn test_provisioner_ignores_non_discovery_events() {
+    use crate::provisioning::{ProvisionError, Provisioner};
+    use hydra_catalog::{CatalogService, FleetManager, SqliteStore};
+    use hydra_drivers::DriverRegistry;
+
+    let test_no = TEST_NO.fetch_add(1, std::sync::atomic::Ordering::SeqCst);
+    let path = std::env::temp_dir()
+        .join(format!("hydra-prov2-{}-{}.db", std::process::id(), test_no))
+        .to_string_lossy()
+        .to_string();
+    let _ = std::fs::remove_file(&path);
+
+    let store = SqliteStore::new(path.clone());
+    store.init().await.unwrap();
+    let fleet_store = SqliteStore::new(path.clone());
+    fleet_store.init().await.unwrap();
+
+    let provisioner = Provisioner::new(
+        CatalogService::new(store),
+        FleetManager::new(fleet_store),
+        DriverRegistry::new(),
+        "prod",
+    );
+
+    let recovered = hydra_telemetry::MetricEvent {
+        kind: MetricKind::DeviceRecovered,
+        device: "10.1.1.78".into(),
+        ts_ms: 0,
+    };
+    assert!(matches!(
+        provisioner.handle_discovered(&recovered).await,
+        Err(ProvisionError::NotADiscoveryEvent)
+    ));
+}

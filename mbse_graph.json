@@ -560,6 +560,20 @@
         "status": "accepted",
         "owner": "telemetry"
       }
+    },
+    {
+      "id": "ARCH-PROVISIONING",
+      "type": "component",
+      "text": "Provisioning workflow: reacts to discovery events to register a device, bind its driver, and assign it to a fleet."
+    },
+    {
+      "id": "REQ-034",
+      "type": "requirement",
+      "text": "A consumer of the metric stream must react to a discovery event to drive a provisioning workflow — registering the device and assigning it to a fleet.",
+      "metadata": {
+        "status": "accepted",
+        "owner": "platform"
+      }
     }
   ],
   "edges": [
@@ -1170,6 +1184,21 @@
     },
     {
       "from": "REQ-033",
+      "to": "CONOPS-007",
+      "relation": "satisfies"
+    },
+    {
+      "from": "ARCH-PROVISIONING",
+      "to": "ARCH-DATA-GW",
+      "relation": "part_of"
+    },
+    {
+      "from": "ARCH-PROVISIONING",
+      "to": "REQ-034",
+      "relation": "realizes"
+    },
+    {
+      "from": "REQ-034",
       "to": "CONOPS-007",
       "relation": "satisfies"
     }
