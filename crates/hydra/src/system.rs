@@ -13,6 +13,8 @@ use hydra_drivers::{
 };
 use hydra_telemetry::{DriverTelemetrySource, MetricKind, MetricStream, TelemetryPoint, TelemetrySource};
 
+use crate::provisioning::{FleetPolicy, Provisioner};
+
 use mbse::links_to;
 use mbse::mbse_exempt;
 
@@ -77,6 +79,9 @@ pub struct HydraSystem {
     /// Per-device telemetry pull: registered devices bound to their drivers
     /// (REQ-026).
     pub telemetry: DriverTelemetrySource,
+    /// CONOPS-007: the discovery→provisioning consumer (REQ-034/035),
+    /// subscribed to the metric stream.
+    pub provisioner: Provisioner,
 }
 
 impl HydraSystem {
@@ -86,7 +91,7 @@ impl HydraSystem {
         let store = SqliteStore::new(config.db_path.clone());
         store.init().await.map_err(|e| SystemError::Store(e.to_string()))?;
         let catalog = CatalogService::new(store);
-        let fleet_store = SqliteStore::new(config.db_path);
+        let fleet_store = SqliteStore::new(config.db_path.clone());
         fleet_store
             .init()
             .await
@@ -118,12 +123,49 @@ impl HydraSystem {
             .map_err(|e| SystemError::Store(e.to_string()))?;
         let comm = DeviceComm::new(registry);
 
-        // Discovery: mDNS on the edge network.
-        let discovery = DiscoveryService::new(vec![], config.discovery_interval_ms);
+        // The metric stream: discovery emits to it (REQ-033), the provisioner
+        // consumes from it (REQ-034) — the decoupling point of CONOPS-007.
+        let stream = MetricStream::default();
+
+        // Discovery: mDNS on the edge network, attached to the stream so a
+        // scan cycle emits `DeviceDiscovered` events.
+        let discovery = DiscoveryService::new(vec![], config.discovery_interval_ms)
+            .with_stream(stream.clone());
+
+        // The provisioner (CONOPS-007): its own catalog/fleet (same durable
+        // DB) + driver registry; subscribed to the stream *before* discovery
+        // emits, so it receives the events.
+        let prov_store = SqliteStore::new(config.db_path.clone());
+        prov_store
+            .init()
+            .await
+            .map_err(|e| SystemError::Store(e.to_string()))?;
+        let prov_fleet_store = SqliteStore::new(config.db_path);
+        prov_fleet_store
+            .init()
+            .await
+            .map_err(|e| SystemError::Store(e.to_string()))?;
+        let mut prov_registry = DriverRegistry::new();
+        prov_registry
+            .register(Arc::new(ModbusDriver::new(Arc::new(SimDevice::new(0)))) as Arc<dyn Driver>)
+            .map_err(|e| SystemError::Store(e.to_string()))?;
+        prov_registry
+            .register(Arc::new(OpcUaDriver::new(Arc::new(SimDevice::new(0)))) as Arc<dyn Driver>)
+            .map_err(|e| SystemError::Store(e.to_string()))?;
+        prov_registry
+            .register(Arc::new(SensorDriver::new(Arc::new(SimDevice::new(0)))) as Arc<dyn Driver>)
+            .map_err(|e| SystemError::Store(e.to_string()))?;
+        let mut provisioner = Provisioner::new(
+            CatalogService::new(prov_store),
+            FleetManager::new(prov_fleet_store),
+            prov_registry,
+            FleetPolicy::new("edge"),
+        );
+        provisioner.attach(&stream);
 
         Ok(Self {
             audit: AuditLog::new(),
-            stream: MetricStream::default(),
+            stream,
             auth,
             catalog,
             fleets,
@@ -131,6 +173,7 @@ impl HydraSystem {
             comm,
             degradation: DegradationManager::new(2),
             telemetry: DriverTelemetrySource::new(),
+            provisioner,
         })
     }
 
@@ -166,6 +209,18 @@ impl HydraSystem {
             &format!("discovered at {}", found.address),
         );
         Ok(device.id)
+    }
+
+    /// CONOPS-007: run one discovery→provisioning loop cycle. Discovery
+    /// scans the edge network and emits `DeviceDiscovered` events to the
+    /// stream (REQ-033); the provisioner — subscribed before the scan —
+    /// reacts to each and provisions it (register, bind driver, assign fleet
+    /// per policy; REQ-034/035). Returns the number of devices provisioned.
+    pub async fn run_discovery_cycle(&mut self) -> usize {
+        // Discovery scans and emits events to the stream.
+        let _fresh = self.discovery.run_cycle().await;
+        // The provisioner processes the pending discovery events.
+        self.provisioner.drain().await
     }
 
     /// CONOPS-004: a driver lost communication with a device. Record the

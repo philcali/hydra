@@ -574,6 +574,15 @@
         "status": "accepted",
         "owner": "platform"
       }
+    },
+    {
+      "id": "REQ-035",
+      "type": "requirement",
+      "text": "The fleet a discovered device is assigned to must be determined by a data-driven assignment policy (routing by vendor/type to a fleet), with a default fallback.",
+      "metadata": {
+        "status": "accepted",
+        "owner": "platform"
+      }
     }
   ],
   "edges": [
@@ -1199,6 +1208,16 @@
     },
     {
       "from": "REQ-034",
+      "to": "CONOPS-007",
+      "relation": "satisfies"
+    },
+    {
+      "from": "ARCH-PROVISIONING",
+      "to": "REQ-035",
+      "relation": "realizes"
+    },
+    {
+      "from": "REQ-035",
       "to": "CONOPS-007",
       "relation": "satisfies"
     }

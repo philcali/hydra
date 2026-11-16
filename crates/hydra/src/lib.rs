@@ -13,7 +13,7 @@ mbse_graph::collect_test!();
 pub mod provisioning;
 pub mod system;
 
-pub use provisioning::{Provisioned, Provisioner, ProvisionError};
+pub use provisioning::{FleetPolicy, FleetRule, Provisioned, Provisioner, ProvisionError};
 pub use system::{HydraConfig, HydraSystem, SystemError, SystemStatus};
 
 #[cfg(test)]

@@ -161,7 +161,7 @@ async fn test_collect_telemetry_pulls_per_device() {
 #[links_to("REQ-034")]
 #[tokio::test]
 async fn test_provisioner_provisions_discovered_device() {
-    use crate::provisioning::Provisioner;
+    use crate::provisioning::{FleetPolicy, Provisioner};
     use hydra_catalog::{CatalogService, FleetManager, SqliteStore};
     use hydra_drivers::{DriverRegistry, ModbusDriver};
 
@@ -185,7 +185,8 @@ async fn test_provisioner_provisions_discovered_device() {
         .register(Arc::new(ModbusDriver::new(Arc::new(SimDevice::new(0)))) as Arc<dyn Driver>)
         .unwrap();
 
-    let provisioner = Provisioner::new(catalog, fleets, registry, "prod");
+    let provisioner =
+        Provisioner::new(catalog, fleets, registry, FleetPolicy::new("prod"));
 
     let event = hydra_telemetry::MetricEvent {
         kind: MetricKind::DeviceDiscovered {
@@ -207,7 +208,7 @@ async fn test_provisioner_provisions_discovered_device() {
 #[links_to("REQ-034")]
 #[tokio::test]
 async fn test_provisioner_ignores_non_discovery_events() {
-    use crate::provisioning::{ProvisionError, Provisioner};
+    use crate::provisioning::{FleetPolicy, ProvisionError, Provisioner};
     use hydra_catalog::{CatalogService, FleetManager, SqliteStore};
     use hydra_drivers::DriverRegistry;
 
@@ -227,7 +228,7 @@ async fn test_provisioner_ignores_non_discovery_events() {
         CatalogService::new(store),
         FleetManager::new(fleet_store),
         DriverRegistry::new(),
-        "prod",
+        FleetPolicy::new("prod"),
     );
 
     let recovered = hydra_telemetry::MetricEvent {
@@ -239,4 +240,98 @@ async fn test_provisioner_ignores_non_discovery_events() {
         provisioner.handle_discovered(&recovered).await,
         Err(ProvisionError::NotADiscoveryEvent)
     ));
+}
+
+/// Verifies REQ-035: the fleet a device is assigned to is determined by a
+/// data-driven policy (vendor/type → fleet), with a default fallback.
+#[links_to("REQ-035")]
+#[tokio::test]
+async fn test_fleet_assignment_is_policy_driven() {
+    use crate::provisioning::{FleetPolicy, FleetRule, Provisioner};
+    use hydra_catalog::{CatalogService, FleetManager, SqliteStore};
+    use hydra_drivers::DriverRegistry;
+
+    let test_no = TEST_NO.fetch_add(1, std::sync::atomic::Ordering::SeqCst);
+    let path = std::env::temp_dir()
+        .join(format!("hydra-prov3-{}-{}.db", std::process::id(), test_no))
+        .to_string_lossy()
+        .to_string();
+    let _ = std::fs::remove_file(&path);
+
+    let store = SqliteStore::new(path.clone());
+    store.init().await.unwrap();
+    let fleet_store = SqliteStore::new(path.clone());
+    fleet_store.init().await.unwrap();
+
+    // acme PLCs → "plc-fleet"; everything else → default "misc-fleet".
+    let policy = FleetPolicy::new("misc-fleet").add_rule(FleetRule {
+        vendor: Some("acme".into()),
+        device_type: Some("plc".into()),
+        fleet_id: "plc-fleet".into(),
+    });
+
+    let provisioner = Provisioner::new(
+        CatalogService::new(store),
+        FleetManager::new(fleet_store),
+        DriverRegistry::new(),
+        policy,
+    );
+
+    // An acme PLC routes to the specific fleet…
+    let plc = hydra_telemetry::MetricEvent {
+        kind: MetricKind::DeviceDiscovered {
+            vendor: "acme".into(),
+            device_type: "plc".into(),
+        },
+        device: "10.9.9.1".into(),
+        ts_ms: 0,
+    };
+    assert_eq!(provisioner.handle_discovered(&plc).await.unwrap().fleet_id, "plc-fleet");
+
+    // A siemens sensor falls back to the default fleet.
+    let sensor = hydra_telemetry::MetricEvent {
+        kind: MetricKind::DeviceDiscovered {
+            vendor: "siemens".into(),
+            device_type: "sensor".into(),
+        },
+        device: "10.9.9.2".into(),
+        ts_ms: 0,
+    };
+    assert_eq!(
+        provisioner.handle_discovered(&sensor).await.unwrap().fleet_id,
+        "misc-fleet"
+    );
+}
+
+/// Verifies CONOPS-007 (the real loop): a discovery scan emits a discovery
+/// event on the stream, and the provisioner reacts to provision it —
+/// registered in the shared catalog and assigned to a fleet per policy.
+#[links_to("REQ-034")]
+#[tokio::test]
+async fn test_discovery_loop_provisions_devices() {
+    use hydra_catalog::DeviceFilters;
+    use hydra_discovery::{MdnsSource, ScanSource};
+
+    let mut sys = system().await;
+    // A simulated device on the edge network.
+    sys.discovery
+        .add_source(MdnsSource::new(vec![found_plc("10.7.7.1", "acme")]));
+
+    // Run one loop cycle: discovery scans + emits → provisioner provisions.
+    let provisioned = sys.run_discovery_cycle().await;
+    assert_eq!(provisioned, 1);
+
+    // The device is registered in the shared catalog…
+    let device = sys.catalog.get_device("10.7.7.1").await.unwrap().unwrap();
+    assert_eq!(device.vendor, "acme");
+    // …and assigned to the "edge" fleet by the provisioner's policy.
+    let in_edge = sys
+        .catalog
+        .list_devices(DeviceFilters {
+            fleet_id: Some("edge".into()),
+            ..Default::default()
+        })
+        .await
+        .unwrap();
+    assert!(in_edge.iter().any(|d| d.id == "10.7.7.1"));
 }
