@@ -5,7 +5,9 @@ use crate::gateway::{ApiError, ApiGateway, DataPlaneGateway, DeviceOperation, Op
 
 use std::sync::Arc;
 
-use hydra_audit::AuditLog;
+use hydra_audit::{
+    AuditBackendKind, AuditConfig, AuditDomain, AuditEngine, AuditFilters,
+};
 use hydra_auth::{AclEngine, AuthService, CertProvider, IdentityPool, OidcProvider};
 use hydra_catalog::{CatalogService, Device, FleetManager, SqliteStore};
 use hydra_discovery::DiscoveryConfigStore;
@@ -43,6 +45,24 @@ fn next_test_no() -> u64 {
     TEST_NO.fetch_add(1, std::sync::atomic::Ordering::SeqCst)
 }
 
+/// A fresh audit engine (REQ-038: configurable at startup) over a temp
+/// SQLite store (REQ-039: queryable).
+fn audit_engine(prefix: &str) -> AuditEngine {
+    let path = std::env::temp_dir().join(format!(
+        "hydra-audit-{prefix}-{}-{}.db",
+        std::process::id(),
+        next_test_no()
+    ));
+    let _ = std::fs::remove_file(&path);
+    let config = AuditConfig {
+        backend: AuditBackendKind::Sqlite {
+            path: path.to_string_lossy().to_string(),
+        },
+        ..Default::default()
+    };
+    config.engine(None).unwrap()
+}
+
 /// Shared auth: OIDC for operators, certificates for devices, ACL for all
 /// three planes' actions.
 fn auth() -> AuthService {
@@ -70,7 +90,7 @@ async fn control_gateway() -> ApiGateway {
     let fleet_store = SqliteStore::new(path_str);
     fleet_store.init().await.unwrap();
     let fleets = FleetManager::new(fleet_store);
-    ApiGateway::new(auth(), catalog, fleets, DiscoveryConfigStore::new(), AuditLog::new())
+    ApiGateway::new(auth(), catalog, fleets, DiscoveryConfigStore::new(), audit_engine("c"))
 }
 
 /// Data-plane gateway (device ops) over a fresh store, with one device
@@ -118,7 +138,10 @@ async fn data_gateway(device_type: &str, vendor: &str) -> (DataPlaneGateway, Str
         .unwrap();
     let comm = DeviceComm::new(registry);
 
-    (DataPlaneGateway::new(auth(), catalog, comm, AuditLog::new()), id)
+    (
+        DataPlaneGateway::new(auth(), catalog, comm, audit_engine("d")),
+        id,
+    )
 }
 
 // ── Control plane (ARCH-CTRL-GW) — REQ-004 ─────────────────────────────
@@ -209,9 +232,11 @@ fn test_forbidden_rejected() {
     assert!(matches!(err, ApiError::Forbidden(_)));
 }
 
-/// Verifies REQ-016 (control plane): every device action is audited, with a
-/// verifiable chain.
-#[links_to("REQ-016")]
+/// Verifies REQ-036 (control plane): every device action is audited with
+/// the actor, in the control domain, with a verifiable chain — and can be
+/// queried back through the gateway (REQ-039).
+#[links_to("REQ-036")]
+#[links_to("REQ-039")]
 #[test]
 fn test_actions_are_audited() {
     let mut gw = run(control_gateway());
@@ -228,10 +253,65 @@ fn test_actions_are_audited() {
     .unwrap();
 
     let audit = gw.audit();
-    assert_eq!(audit.len(), 1);
-    audit.verify().unwrap();
-    assert_eq!(audit.records()[0].actor, "alice");
-    assert_eq!(audit.records()[0].action, "catalog:create");
+    let records = run(audit.records()).unwrap();
+    assert_eq!(records.len(), 1);
+    assert_eq!(records[0].domain, AuditDomain::ControlPlane);
+    assert_eq!(records[0].actor, "alice");
+    assert_eq!(records[0].action, "catalog:create");
+    run(audit.verify()).unwrap();
+
+    // Queryable (REQ-039): filter by actor + action through the gateway.
+    let filtered = run(gw.audit_query(&AuditFilters {
+        actor: Some("alice".into()),
+        action: Some("catalog:create".into()),
+        ..Default::default()
+    }))
+    .unwrap();
+    assert_eq!(filtered.len(), 1);
+    assert_eq!(filtered[0].hash, records[0].hash);
+}
+
+/// Verifies REQ-036 (control plane): a denied action is audited too — the
+/// log is a complete "who did what" account, including failures.
+#[links_to("REQ-036")]
+#[test]
+fn test_denied_action_is_audited() {
+    let mut gw = run(control_gateway());
+    let viewer = claims(&["viewer"]);
+    let err = run(gw.handle(
+        &viewer,
+        Operation::CreateDevice {
+            name: "Nope".into(),
+            device_type: "plc".into(),
+            vendor: "acme".into(),
+        },
+        NOW,
+    ))
+    .unwrap_err();
+    assert!(matches!(err, ApiError::Forbidden(_)));
+
+    let records = run(gw.audit().records()).unwrap();
+    assert_eq!(records.len(), 1);
+    assert_eq!(records[0].actor, "alice"); // the principal was identified
+    assert!(records[0].result.starts_with("denied:"));
+    run(gw.audit().verify()).unwrap();
+}
+
+/// Verifies REQ-036 (control plane): an unauthenticated request is audited
+/// with the "anonymous" actor and the unauthorized outcome.
+#[links_to("REQ-036")]
+#[test]
+fn test_unauthenticated_is_audited() {
+    let mut gw = run(control_gateway());
+    let err = run(gw.handle("not-a-token", Operation::ListDevices, NOW))
+        .unwrap_err();
+    assert!(matches!(err, ApiError::Unauthorized(_)));
+
+    let records = run(gw.audit().records()).unwrap();
+    assert_eq!(records.len(), 1);
+    assert_eq!(records[0].actor, "anonymous");
+    assert!(records[0].result.starts_with("unauthorized:"));
+    run(gw.audit().verify()).unwrap();
 }
 
 /// Verifies REQ-032 (control plane): discovery configurations are first-class
@@ -359,8 +439,10 @@ async fn test_full_fidelity_allows_operations() {
 }
 
 /// Verifies REQ-018 (data plane): a catalog device with no driver is
-/// manageable in the catalog but not operable.
+/// manageable in the catalog but not operable — and the refusal is audited
+/// in the data domain with the outcome (REQ-037).
 #[links_to("REQ-018")]
+#[links_to("REQ-037")]
 #[tokio::test]
 async fn test_no_driver_cannot_operate() {
     let (mut gw, id) = data_gateway("plc", "mystery-vendor").await;
@@ -371,4 +453,14 @@ async fn test_no_driver_cannot_operate() {
         .await
         .unwrap_err();
     assert!(matches!(err, ApiError::NoDriver(_, _)));
+
+    // The failed operation is audited (REQ-037) — the log accounts for
+    // what was attempted on the device, not just what succeeded.
+    let records = gw.audit().records().await.unwrap();
+    assert!(records.iter().any(|r| {
+        r.domain == AuditDomain::DataPlane
+            && r.action == "device:get-config"
+            && r.result.starts_with("error:")
+    }));
+    gw.audit().verify().await.unwrap();
 }

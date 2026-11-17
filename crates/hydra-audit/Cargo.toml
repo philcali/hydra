@@ -10,7 +10,9 @@ mbse-graph = { workspace = true }
 tokio = { workspace = true }
 serde = { workspace = true }
 serde_json = { workspace = true }
-tracing = { workspace = true }
+tracing = "0.1"
 thiserror = "1"
 sha2 = "0.10"
 hex = "0.4"
+async-trait = "0.1"
+rusqlite = { version = "0.32", features = ["bundled"] }

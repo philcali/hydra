@@ -5,8 +5,15 @@
 //!   ops (catalog + fleet). Deliberately no device/driver access.
 //! - `DataPlaneGateway` — **data plane** (ARCH-DATA-GW): device ops through
 //!   their drivers, with fidelity enforcement (REQ-018). Scales independently.
+//!
+//! Audit (REQ-036/REQ-037): every request — allowed, denied, or failed — is
+//! appended to the domain-scoped, hash-chained audit log: control-plane
+//! actions into the control domain ("who did what"), data-plane operations
+//! into the data domain ("what happened to which device"). The log is
+//! queryable through the gateway (REQ-039) and lives on the pluggable
+//! durable store configured at startup (REQ-038).
 
-use hydra_audit::AuditLog;
+use hydra_audit::{AuditEngine, AuditDomain, AuditFilters};
 use hydra_auth::{AuthService, Decision};
 use hydra_catalog::{CatalogService, Device, DeviceFilters, DeviceUpdates, FleetManager};
 use hydra_discovery::DiscoveryConfigStore;
@@ -133,6 +140,7 @@ pub enum ApiError {
 /// job (`DataPlaneGateway`), so the two planes can scale independently.
 #[links_to("REQ-004", component = "ARCH-CTRL-GW")]
 #[links_to("REQ-032", component = "ARCH-CTRL-GW")]
+#[links_to("REQ-036", component = "ARCH-CTRL-GW")]
 pub struct ApiGateway {
     auth: AuthService,
     catalog: CatalogService,
@@ -140,7 +148,9 @@ pub struct ApiGateway {
     /// Discovery configuration resources (REQ-032) — managed here, consumed
     /// by the data plane.
     config_store: DiscoveryConfigStore,
-    audit: AuditLog,
+    /// The cross-system audit service (REQ-036): every control-plane action
+    /// is appended to the control domain of the immutable log.
+    audit: AuditEngine,
     created: u64,
 }
 
@@ -150,7 +160,7 @@ impl ApiGateway {
         catalog: CatalogService,
         fleets: FleetManager,
         config_store: DiscoveryConfigStore,
-        audit: AuditLog,
+        audit: AuditEngine,
     ) -> Self {
         Self {
             auth,
@@ -163,38 +173,95 @@ impl ApiGateway {
     }
 
     /// Handle a control-plane request: authenticate → authorize → execute →
-    /// audit (REQ-004).
+    /// audit (REQ-004/REQ-036). Denied and failed requests are audited
+    /// too — with the failure as the outcome — so the log is a complete
+    /// account of what was attempted.
     pub async fn handle(
         &mut self,
         token: &str,
         op: Operation,
         now_epoch: u64,
     ) -> Result<serde_json::Value, ApiError> {
-        let identity = self
-            .auth
-            .authenticate(token, now_epoch)
-            .await
-            .map_err(|e| ApiError::Unauthorized(e.to_string()))?;
-
         let action = op.action().to_string();
         let resource = op.resource();
+
+        let identity = match self.auth.authenticate(token, now_epoch).await {
+            Ok(identity) => identity,
+            Err(e) => {
+                self.audit
+                    .append(
+                        AuditDomain::ControlPlane,
+                        "anonymous",
+                        &action,
+                        &resource,
+                        "via control plane",
+                        &format!("unauthorized: {e}"),
+                    )
+                    .await
+                    .ok();
+                return Err(ApiError::Unauthorized(e.to_string()));
+            }
+        };
+
         if self.auth.authorize(&identity, &action, &resource) != Decision::Allow {
             tracing::warn!(principal = %identity.principal, action = %action, "request forbidden by ACL");
+            self.audit
+                .append(
+                    AuditDomain::ControlPlane,
+                    &identity.principal,
+                    &action,
+                    &resource,
+                    "via control plane",
+                    &format!("denied: {action} on {resource}"),
+                )
+                .await
+                .ok();
             return Err(ApiError::Forbidden(format!("{action} on {resource}")));
         }
 
-        let result = self.execute(&op).await?;
-
-        // REQ-016: every action made to a device is audited.
-        self.audit
-            .append(&identity.principal, &action, &resource, "via control plane");
+        let result = match self.execute(&op).await {
+            Ok(value) => {
+                self.audit
+                    .append(
+                        AuditDomain::ControlPlane,
+                        &identity.principal,
+                        &action,
+                        &resource,
+                        "via control plane",
+                        "ok",
+                    )
+                    .await
+                    .ok();
+                value
+            }
+            Err(e) => {
+                self.audit
+                    .append(
+                        AuditDomain::ControlPlane,
+                        &identity.principal,
+                        &action,
+                        &resource,
+                        "via control plane",
+                        &format!("error: {e}"),
+                    )
+                    .await
+                    .ok();
+                return Err(e);
+            }
+        };
 
         Ok(result)
     }
 
-    /// The audit log (for verification after the fact).
-    pub fn audit(&self) -> &AuditLog {
+    /// The audit service (REQ-036/039): records can be verified or
+    /// queried by domain, actor, action, resource, and time range.
+    pub fn audit(&self) -> &AuditEngine {
         &self.audit
+    }
+
+    /// Query the control-plane audit log (REQ-039).
+    pub async fn audit_query(&self, filters: &AuditFilters) -> Result<Vec<hydra_audit::AuditRecord>, hydra_audit::AuditError> {
+        self.audit.query(filters).await
     }
 
     async fn execute(&mut self, op: &Operation) -> Result<serde_json::Value, ApiError> {
@@ -283,11 +350,14 @@ impl ApiGateway {
 /// control plane, so it can scale independently.
 #[links_to("REQ-004", component = "ARCH-DATA-GW")]
 #[links_to("REQ-018", component = "ARCH-DATA-GW")]
+#[links_to("REQ-037", component = "ARCH-DATA-GW")]
 pub struct DataPlaneGateway {
     auth: AuthService,
     catalog: CatalogService,
     comm: DeviceComm,
-    audit: AuditLog,
+    /// The cross-system audit service (REQ-037): every device operation —
+    /// successful or failed — is appended to the data domain.
+    audit: AuditEngine,
 }
 
 impl DataPlaneGateway {
@@ -295,7 +365,7 @@ impl DataPlaneGateway {
         auth: AuthService,
         catalog: CatalogService,
         comm: DeviceComm,
-        audit: AuditLog,
+        audit: AuditEngine,
     ) -> Self {
         Self {
             auth,
@@ -306,37 +376,95 @@ impl DataPlaneGateway {
     }
 
     /// Handle a data-plane request: authenticate → authorize → execute →
-    /// audit (REQ-004), with fidelity enforcement (REQ-018).
+    /// audit (REQ-004/REQ-037), with fidelity enforcement (REQ-018).
+    /// Denied and failed operations are audited too — the log must account
+    /// for what was attempted on each device, not just what succeeded.
     pub async fn handle(
         &mut self,
         token: &str,
         op: DeviceOperation,
         now_epoch: u64,
     ) -> Result<serde_json::Value, ApiError> {
-        let identity = self
-            .auth
-            .authenticate(token, now_epoch)
-            .await
-            .map_err(|e| ApiError::Unauthorized(e.to_string()))?;
-
         let action = op.action().to_string();
         let resource = op.resource();
+
+        let identity = match self.auth.authenticate(token, now_epoch).await {
+            Ok(identity) => identity,
+            Err(e) => {
+                self.audit
+                    .append(
+                        AuditDomain::DataPlane,
+                        "anonymous",
+                        &action,
+                        &resource,
+                        "via data plane",
+                        &format!("unauthorized: {e}"),
+                    )
+                    .await
+                    .ok();
+                return Err(ApiError::Unauthorized(e.to_string()));
+            }
+        };
+
         if self.auth.authorize(&identity, &action, &resource) != Decision::Allow {
             tracing::warn!(principal = %identity.principal, action = %action, "request forbidden by ACL");
+            self.audit
+                .append(
+                    AuditDomain::DataPlane,
+                    &identity.principal,
+                    &action,
+                    &resource,
+                    "via data plane",
+                    &format!("denied: {action} on {resource}"),
+                )
+                .await
+                .ok();
             return Err(ApiError::Forbidden(format!("{action} on {resource}")));
         }
 
-        let result = self.execute(&op).await?;
-
-        self.audit
-            .append(&identity.principal, &action, &resource, "via data plane");
+        let result = match self.execute(&op).await {
+            Ok(value) => {
+                self.audit
+                    .append(
+                        AuditDomain::DataPlane,
+                        &identity.principal,
+                        &action,
+                        &resource,
+                        "via data plane",
+                        "ok",
+                    )
+                    .await
+                    .ok();
+                value
+            }
+            Err(e) => {
+                self.audit
+                    .append(
+                        AuditDomain::DataPlane,
+                        &identity.principal,
+                        &action,
+                        &resource,
+                        "via data plane",
+                        &format!("error: {e}"),
+                    )
+                    .await
+                    .ok();
+                return Err(e);
+            }
+        };
 
         Ok(result)
     }
 
-    /// The audit log (for verification after the fact).
-    pub fn audit(&self) -> &AuditLog {
+    /// The audit service (REQ-037/039): device operations can be verified
+    /// or queried by domain, actor, action, resource, and time range.
+    pub fn audit(&self) -> &AuditEngine {
         &self.audit
+    }
+
+    /// Query the data-plane audit log (REQ-039).
+    pub async fn audit_query(&self, filters: &AuditFilters) -> Result<Vec<hydra_audit::AuditRecord>, hydra_audit::AuditError> {
+        self.audit.query(filters).await
     }
 
     async fn execute(&mut self, op: &DeviceOperation) -> Result<serde_json::Value, ApiError> {

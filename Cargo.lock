@@ -251,9 +251,11 @@ dependencies = [
 name = "hydra-audit"
 version = "0.1.0"
 dependencies = [
+ "async-trait",
  "hex",
  "mbse",
  "mbse-graph",
+ "rusqlite",
  "serde",
  "serde_json",
  "sha2",

@@ -191,15 +191,6 @@
       }
     },
     {
-      "id": "REQ-016",
-      "type": "requirement",
-      "text": "Hydra must maintain an immutable audit log for all actions made to devices.",
-      "metadata": {
-        "status": "accepted",
-        "owner": "audit"
-      }
-    },
-    {
       "id": "ARCH-AUTH",
       "type": "component",
       "text": "Auth service: identity provider integration, ACL engine, operation scoping."
@@ -405,7 +396,7 @@
     {
       "id": "REQ-020",
       "type": "requirement",
-      "text": "Hydra must manage credentials for local identities — set, rotate, and verify — statefully.",
+      "text": "Hydra must manage credentials for local identities \u2014 set, rotate, and verify \u2014 statefully.",
       "metadata": {
         "status": "accepted",
         "owner": "auth"
@@ -519,7 +510,7 @@
     {
       "id": "REQ-030",
       "type": "requirement",
-      "text": "The data plane must deliver metric stream events to the registered delivery targets entitled to them (the stream→fan-out bridge).",
+      "text": "The data plane must deliver metric stream events to the registered delivery targets entitled to them (the stream\u2192fan-out bridge).",
       "metadata": {
         "status": "accepted",
         "owner": "telemetry"
@@ -537,7 +528,7 @@
     {
       "id": "CONOPS-007",
       "type": "conops",
-      "text": "An operator creates a discovery configuration; discovery scans and emits discovery events on the metric stream; a consumer reacts to drive provisioning — registering the device, binding its driver, and assigning it to a fleet.",
+      "text": "An operator creates a discovery configuration; discovery scans and emits discovery events on the metric stream; a consumer reacts to drive provisioning \u2014 registering the device, binding its driver, and assigning it to a fleet.",
       "metadata": {
         "status": "accepted",
         "scenario": "discovery_provisioning"
@@ -569,7 +560,7 @@
     {
       "id": "REQ-034",
       "type": "requirement",
-      "text": "A consumer of the metric stream must react to a discovery event to drive a provisioning workflow — registering the device and assigning it to a fleet.",
+      "text": "A consumer of the metric stream must react to a discovery event to drive a provisioning workflow \u2014 registering the device and assigning it to a fleet.",
       "metadata": {
         "status": "accepted",
         "owner": "platform"
@@ -582,6 +573,104 @@
       "metadata": {
         "status": "accepted",
         "owner": "platform"
+      }
+    },
+    {
+      "id": "REQ-036",
+      "type": "requirement",
+      "text": "Hydra must record every control-plane action (operator and management-layer operations on the catalog, fleets, and discovery) in the audit log, with the acting principal, the action, the resource, and the outcome \u2014 a 'who did what' account of the management layer.",
+      "metadata": {
+        "status": "accepted",
+        "owner": "control"
+      }
+    },
+    {
+      "id": "REQ-037",
+      "type": "requirement",
+      "text": "Hydra must record every data-plane operation made to a specific device (config read, config write, commands) in the audit log, including failed and denied operations, with the acting principal, the device, the operation, and the outcome.",
+      "metadata": {
+        "status": "accepted",
+        "owner": "data"
+      }
+    },
+    {
+      "id": "REQ-038",
+      "type": "requirement",
+      "text": "Hydra must make audit persistence pluggable and configurable at startup (SQLite for edge, PostgreSQL for multi-node), so the durable store is a config selection the audit service talks to through an adapter boundary.",
+      "metadata": {
+        "status": "accepted",
+        "owner": "audit"
+      }
+    },
+    {
+      "id": "REQ-039",
+      "type": "requirement",
+      "text": "Hydra must make the audit log queryable: operators must be able to retrieve records by domain, actor, action, resource, and time range, in chain order.",
+      "metadata": {
+        "status": "accepted",
+        "owner": "audit"
+      }
+    },
+    {
+      "id": "REQ-040",
+      "type": "requirement",
+      "text": "Hydra must support pushing audit records out to registered delivery targets (e.g. an SIEM over HTTP) through pluggable transports; delivery must be best-effort \u2014 a failed push must not lose or roll back the persisted record.",
+      "metadata": {
+        "status": "accepted",
+        "owner": "audit"
+      }
+    },
+    {
+      "id": "REQ-041",
+      "type": "requirement",
+      "text": "Hydra must enforce a configurable retention bound on the active audit log: records beyond the bound are rotated out, the surviving chain remains verifiable, and new records continue that chain.",
+      "metadata": {
+        "status": "accepted",
+        "owner": "audit"
+      }
+    },
+    {
+      "id": "ARCH-AUDIT-SQLITE",
+      "type": "component",
+      "text": "Audit persistence on SQLite: the queryable, durable local store for single-node / edge deployments; WAL mode for concurrent reads. Realizes REQ-038/039/041.",
+      "metadata": {
+        "status": "implemented"
+      }
+    },
+    {
+      "id": "ARCH-AUDIT-POSTGRES",
+      "type": "component",
+      "text": "Audit persistence on PostgreSQL: the multi-node / production audit store (planned).",
+      "metadata": {
+        "status": "planned"
+      }
+    },
+    {
+      "id": "ARCH-AUDIT-DELIVERY",
+      "type": "component",
+      "text": "Audit delivery: pushes audit records to registered targets (in-process callback or remote HTTP) through pluggable transports.",
+      "metadata": {
+        "status": "implemented"
+      }
+    },
+    {
+      "id": "P-AUDIT-RETENTION",
+      "type": "parameter",
+      "text": "Maximum number of audit records kept per domain in the active log before rotation.",
+      "metadata": {
+        "name": "audit_retention_records",
+        "unit": "records",
+        "bound": "max",
+        "value": 10000
+      }
+    },
+    {
+      "id": "REQ-016",
+      "type": "requirement",
+      "text": "Hydra must maintain an immutable audit log for all actions made to devices and management operations, with a verifiable integrity chain.",
+      "metadata": {
+        "status": "accepted",
+        "owner": "audit"
       }
     }
   ],
@@ -627,11 +716,6 @@
       "relation": "satisfies"
     },
     {
-      "from": "REQ-016",
-      "to": "CONOPS-001",
-      "relation": "satisfies"
-    },
-    {
       "from": "REQ-005",
       "to": "CONOPS-002",
       "relation": "satisfies"
@@ -643,11 +727,6 @@
     },
     {
       "from": "REQ-013",
-      "to": "CONOPS-002",
-      "relation": "satisfies"
-    },
-    {
-      "from": "REQ-016",
       "to": "CONOPS-002",
       "relation": "satisfies"
     },
@@ -678,11 +757,6 @@
     },
     {
       "from": "REQ-015",
-      "to": "CONOPS-004",
-      "relation": "satisfies"
-    },
-    {
-      "from": "REQ-016",
       "to": "CONOPS-004",
       "relation": "satisfies"
     },
@@ -762,11 +836,6 @@
       "relation": "realizes"
     },
     {
-      "from": "ARCH-AUDIT",
-      "to": "REQ-016",
-      "relation": "realizes"
-    },
-    {
       "from": "ARCH-CTRL-GW",
       "to": "REQ-014",
       "relation": "realizes"
@@ -809,11 +878,6 @@
     {
       "from": "REQ-015",
       "to": "P-METRIC-STREAM-LAG",
-      "relation": "constrains"
-    },
-    {
-      "from": "REQ-016",
-      "to": "P-AUDIT-FLUSH-LATENCY",
       "relation": "constrains"
     },
     {
@@ -1219,6 +1283,211 @@
     {
       "from": "REQ-035",
       "to": "CONOPS-007",
+      "relation": "satisfies"
+    },
+    {
+      "from": "REQ-036",
+      "to": "CONOPS-001",
+      "relation": "satisfies"
+    },
+    {
+      "from": "REQ-036",
+      "to": "CONOPS-002",
+      "relation": "satisfies"
+    },
+    {
+      "from": "REQ-037",
+      "to": "CONOPS-003",
+      "relation": "satisfies"
+    },
+    {
+      "from": "REQ-037",
+      "to": "CONOPS-004",
+      "relation": "satisfies"
+    },
+    {
+      "from": "ARCH-AUDIT",
+      "to": "REQ-036",
+      "relation": "realizes"
+    },
+    {
+      "from": "ARCH-AUDIT",
+      "to": "REQ-037",
+      "relation": "realizes"
+    },
+    {
+      "from": "ARCH-AUDIT",
+      "to": "REQ-038",
+      "relation": "realizes"
+    },
+    {
+      "from": "ARCH-AUDIT",
+      "to": "REQ-039",
+      "relation": "realizes"
+    },
+    {
+      "from": "ARCH-AUDIT",
+      "to": "REQ-040",
+      "relation": "realizes"
+    },
+    {
+      "from": "ARCH-AUDIT",
+      "to": "REQ-041",
+      "relation": "realizes"
+    },
+    {
+      "from": "ARCH-AUDIT-SQLITE",
+      "to": "REQ-038",
+      "relation": "realizes"
+    },
+    {
+      "from": "ARCH-AUDIT-SQLITE",
+      "to": "REQ-039",
+      "relation": "realizes"
+    },
+    {
+      "from": "ARCH-AUDIT-SQLITE",
+      "to": "REQ-041",
+      "relation": "realizes"
+    },
+    {
+      "from": "ARCH-AUDIT-POSTGRES",
+      "to": "REQ-038",
+      "relation": "realizes"
+    },
+    {
+      "from": "ARCH-AUDIT-DELIVERY",
+      "to": "REQ-040",
+      "relation": "realizes"
+    },
+    {
+      "from": "REQ-038",
+      "to": "P-AUDIT-FLUSH-LATENCY",
+      "relation": "constrains"
+    },
+    {
+      "from": "REQ-041",
+      "to": "P-AUDIT-RETENTION",
+      "relation": "constrains"
+    },
+    {
+      "from": "ARCH-AUDIT-SQLITE",
+      "to": "P-AUDIT-FLUSH-LATENCY",
+      "relation": "enforces"
+    },
+    {
+      "from": "ARCH-AUDIT",
+      "to": "P-AUDIT-RETENTION",
+      "relation": "enforces"
+    },
+    {
+      "from": "ARCH-AUDIT-SQLITE",
+      "to": "P-AUDIT-RETENTION",
+      "relation": "enforces"
+    },
+    {
+      "from": "ARCH-AUDIT-SQLITE",
+      "to": "ARCH-AUDIT",
+      "relation": "part_of"
+    },
+    {
+      "from": "ARCH-AUDIT-POSTGRES",
+      "to": "ARCH-AUDIT",
+      "relation": "part_of"
+    },
+    {
+      "from": "ARCH-AUDIT-DELIVERY",
+      "to": "ARCH-AUDIT",
+      "relation": "part_of"
+    },
+    {
+      "from": "REQ-016",
+      "to": "CONOPS-001",
+      "relation": "satisfies"
+    },
+    {
+      "from": "REQ-016",
+      "to": "CONOPS-002",
+      "relation": "satisfies"
+    },
+    {
+      "from": "REQ-016",
+      "to": "CONOPS-004",
+      "relation": "satisfies"
+    },
+    {
+      "from": "ARCH-AUDIT",
+      "to": "REQ-016",
+      "relation": "realizes"
+    },
+    {
+      "from": "REQ-016",
+      "to": "P-AUDIT-FLUSH-LATENCY",
+      "relation": "constrains"
+    },
+    {
+      "from": "REQ-036",
+      "to": "REQ-016",
+      "relation": "refines"
+    },
+    {
+      "from": "REQ-037",
+      "to": "REQ-016",
+      "relation": "refines"
+    },
+    {
+      "from": "REQ-038",
+      "to": "REQ-016",
+      "relation": "refines"
+    },
+    {
+      "from": "REQ-039",
+      "to": "REQ-016",
+      "relation": "refines"
+    },
+    {
+      "from": "REQ-040",
+      "to": "REQ-016",
+      "relation": "refines"
+    },
+    {
+      "from": "REQ-041",
+      "to": "REQ-016",
+      "relation": "refines"
+    },
+    {
+      "from": "REQ-038",
+      "to": "CONOPS-001",
+      "relation": "satisfies"
+    },
+    {
+      "from": "REQ-038",
+      "to": "CONOPS-002",
+      "relation": "satisfies"
+    },
+    {
+      "from": "REQ-039",
+      "to": "CONOPS-001",
+      "relation": "satisfies"
+    },
+    {
+      "from": "REQ-040",
+      "to": "CONOPS-001",
+      "relation": "satisfies"
+    },
+    {
+      "from": "REQ-040",
+      "to": "CONOPS-006",
+      "relation": "satisfies"
+    },
+    {
+      "from": "REQ-041",
+      "to": "CONOPS-001",
+      "relation": "satisfies"
+    },
+    {
+      "from": "REQ-041",
+      "to": "CONOPS-005",
       "relation": "satisfies"
     }
   ]

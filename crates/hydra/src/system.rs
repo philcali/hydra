@@ -3,7 +3,7 @@
 
 use std::sync::Arc;
 
-use hydra_audit::AuditLog;
+use hydra_audit::{AuditConfig, AuditDomain, AuditEngine};
 use hydra_auth::{AclEngine, AuthService, CertProvider, IdentityPool, OidcProvider};
 use hydra_catalog::{CatalogService, DiscoveryInfo, FleetManager, SqliteStore};
 use hydra_discovery::{DiscoveryService, DiscoveredDevice};
@@ -24,6 +24,12 @@ use mbse::mbse_exempt;
 pub struct HydraConfig {
     /// Durable store path shared by the catalog service and fleet manager.
     pub db_path: String,
+    /// Audit store path (REQ-038: the pluggable, configurable durable
+    /// store — SQLite here, Postgres in multi-node deployments).
+    pub audit_db_path: String,
+    /// Retention bound for the active audit log (bounded by
+    /// P-AUDIT-RETENTION).
+    pub audit_retention_records: u64,
     /// Discovery poll interval (bounded by P-DISCOVERY-INTERVAL).
     pub discovery_interval_ms: u64,
     /// Telemetry collection interval (bounded by P-TELEM-INTERVAL).
@@ -37,6 +43,8 @@ impl Default for HydraConfig {
     fn default() -> Self {
         Self {
             db_path: "hydra.db".into(),
+            audit_db_path: "hydra-audit.db".into(),
+            audit_retention_records: hydra_audit::AUDIT_RETENTION_RECORDS,
             discovery_interval_ms: hydra_discovery::engine::DISCOVERY_INTERVAL_S * 1000,
             telem_interval_ms: hydra_telemetry::collector::TELEM_INTERVAL_S * 1000,
             oidc_issuer: "https://id.hydra.internal".into(),
@@ -67,8 +75,11 @@ pub enum SystemError {
 /// The Hydra system: assembles auth, catalog, discovery, drivers,
 /// telemetry, and audit; coordinates the CONOPS flows (ARCH-SYS-MGMT).
 #[links_to("REQ-014", component = "ARCH-SYS-MGMT")]
+#[links_to("REQ-038", component = "ARCH-SYS-MGMT")]
 pub struct HydraSystem {
-    pub audit: AuditLog,
+    /// The cross-system audit service (REQ-036/037/038/039): the
+    /// domain-scoped, hash-chained log on the configurable durable store.
+    pub audit: AuditEngine,
     pub stream: MetricStream,
     pub auth: AuthService,
     pub catalog: CatalogService,
@@ -163,8 +174,22 @@ impl HydraSystem {
         );
         provisioner.attach(&stream);
 
+        // The audit service (REQ-038): the configurable durable store —
+        // SQLite here (edge profile); Postgres is the same config selection
+        // pointing at a different backend.
+        let audit_config = AuditConfig {
+            backend: hydra_audit::AuditBackendKind::Sqlite {
+                path: config.audit_db_path.clone(),
+            },
+            retention_records: config.audit_retention_records,
+            delivery_url: None,
+        };
+        let audit = audit_config
+            .engine(None)
+            .map_err(|e| SystemError::Store(e.to_string()))?;
+
         Ok(Self {
-            audit: AuditLog::new(),
+            audit,
             stream,
             auth,
             catalog,
@@ -202,12 +227,17 @@ impl HydraSystem {
         // (REQ-026) — the "hook into the device registry for pulling metrics".
         self.telemetry.attach(device.id.clone(), driver);
 
-        self.audit.append(
-            "discovery",
-            "catalog:register",
-            &format!("catalog/devices/{}", device.id),
-            &format!("discovered at {}", found.address),
-        );
+        self.audit
+            .append(
+                AuditDomain::ControlPlane,
+                "discovery",
+                "catalog:register",
+                &format!("catalog/devices/{}", device.id),
+                &format!("discovered at {}", found.address),
+                "ok",
+            )
+            .await
+            .map_err(|e| SystemError::Store(e.to_string()))?;
         Ok(device.id)
     }
 
@@ -225,8 +255,9 @@ impl HydraSystem {
 
     /// CONOPS-004: a driver lost communication with a device. Record the
     /// failure; on degradation, activate the graceful fallback, emit a
-    /// metric stream event, and record the degradation.
-    pub fn on_driver_failure(&mut self, device: &str) -> bool {
+    /// metric stream event, and record the degradation in the data-domain
+    /// audit log (REQ-037).
+    pub async fn on_driver_failure(&mut self, device: &str) -> bool {
         let tripped = self.degradation.record(device, false);
         if tripped {
             let _ = self.stream.publish(
@@ -235,26 +266,41 @@ impl HydraSystem {
                 },
                 device,
             );
-            self.audit.append(
-                "system",
-                "degradation:activate",
-                device,
-                "graceful fallback: serve cached config",
-            );
+            let _ = self
+                .audit
+                .append(
+                    AuditDomain::DataPlane,
+                    "system",
+                    "degradation:activate",
+                    device,
+                    "graceful fallback: serve cached config",
+                    "ok",
+                )
+                .await;
         }
         tripped
     }
 
     /// CONOPS-004 (recovery): control restored; clear degradation and
     /// emit a recovery event.
-    pub fn on_driver_recovery(&mut self, device: &str) -> bool {
+    pub async fn on_driver_recovery(&mut self, device: &str) -> bool {
         let was_degraded = self.degradation.state(device) == hydra_drivers::DegradationState::Degraded;
         self.degradation.record(device, true);
         if was_degraded {
             let _ = self
                 .stream
                 .publish(MetricKind::DeviceRecovered, device);
-            self.audit.append("system", "degradation:clear", device, "control restored");
+            let _ = self
+                .audit
+                .append(
+                    AuditDomain::DataPlane,
+                    "system",
+                    "degradation:clear",
+                    device,
+                    "control restored",
+                    "ok",
+                )
+                .await;
         }
         was_degraded
     }

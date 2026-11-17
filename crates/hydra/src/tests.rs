@@ -4,6 +4,7 @@ use crate::system::{HydraConfig, HydraSystem};
 
 use std::sync::Arc;
 
+use hydra_audit::AuditDomain;
 use hydra_discovery::DiscoveredDevice;
 use hydra_drivers::{DegradationState, Driver, FallbackAction, SensorDriver, SimDevice};
 use hydra_telemetry::MetricKind;
@@ -21,9 +22,14 @@ async fn system() -> HydraSystem {
             .join(format!("hydra-root-test-{}-{}.db", std::process::id(), test_no))
             .to_string_lossy()
             .to_string(),
+        audit_db_path: std::env::temp_dir()
+            .join(format!("hydra-audit-{}-{}.db", std::process::id(), test_no))
+            .to_string_lossy()
+            .to_string(),
         ..Default::default()
     };
     let _ = std::fs::remove_file(&config.db_path);
+    let _ = std::fs::remove_file(&config.audit_db_path);
     HydraSystem::bootstrap(config).await.unwrap()
 }
 
@@ -37,7 +43,8 @@ fn found_plc(address: &str, vendor: &str) -> DiscoveredDevice {
 }
 
 /// Verifies REQ-008 (CONOPS-002): a discovered device is registered in
-/// the catalog, matched to a driver, and the action is audited.
+/// the catalog, matched to a driver, and the action is audited in the
+/// control domain (REQ-036).
 #[links_to("REQ-008")]
 #[tokio::test]
 async fn test_onboard_discovered_device() {
@@ -46,11 +53,10 @@ async fn test_onboard_discovered_device() {
 
     let device = sys.catalog.get_device(&id).await.unwrap().unwrap();
     assert_eq!(device.status, "discovered");
-    assert!(sys
-        .audit
-        .records()
+    let records = sys.audit.records().await.unwrap();
+    assert!(records
         .iter()
-        .any(|r| r.action == "catalog:register"));
+        .any(|r| r.action == "catalog:register" && r.domain == AuditDomain::ControlPlane));
 }
 
 /// Verifies REQ-011 (CONOPS-002): a device of an unmatchable vendor
@@ -69,8 +75,8 @@ async fn test_onboard_unmatched_driver() {
 #[tokio::test]
 async fn test_degradation_trips() {
     let mut sys = system().await;
-    assert!(!sys.on_driver_failure("plc/acme"));
-    assert!(sys.on_driver_failure("plc/acme"));
+    assert!(!sys.on_driver_failure("plc/acme").await);
+    assert!(sys.on_driver_failure("plc/acme").await);
     assert_eq!(sys.degradation.state("plc/acme"), DegradationState::Degraded);
     assert_eq!(
         sys.degradation.fallback("plc/acme"),
@@ -85,29 +91,33 @@ async fn test_degradation_trips() {
 async fn test_degradation_emits_metric_event() {
     let mut sys = system().await;
     let mut rx = sys.stream.subscribe();
-    sys.on_driver_failure("plc/acme");
-    sys.on_driver_failure("plc/acme"); // trips
+    sys.on_driver_failure("plc/acme").await;
+    sys.on_driver_failure("plc/acme").await; // trips
 
     let event = rx.recv().await.unwrap();
     assert_eq!(event.device, "plc/acme");
     assert!(matches!(event.kind, MetricKind::DeviceUnhealthy { .. }));
 }
 
-/// Verifies REQ-016 (CONOPS-004): the degradation is recorded in the
-/// immutable audit log.
-#[links_to("REQ-016")]
+/// Verifies REQ-037 (CONOPS-004): the degradation is recorded in the
+/// data-domain audit log — the immutable, hash-chained chain holds.
+#[links_to("REQ-037")]
 #[tokio::test]
 async fn test_degradation_is_audited() {
     let mut sys = system().await;
-    sys.on_driver_failure("plc/acme");
-    sys.on_driver_failure("plc/acme");
+    sys.on_driver_failure("plc/acme").await;
+    sys.on_driver_failure("plc/acme").await;
 
-    sys.audit.verify().unwrap();
+    sys.audit.verify().await.unwrap();
     assert!(sys
         .audit
         .records()
+        .await
+        .unwrap()
         .iter()
-        .any(|r| r.action == "degradation:activate" && r.actor == "system"));
+        .any(|r| r.action == "degradation:activate"
+            && r.actor == "system"
+            && r.domain == AuditDomain::DataPlane));
 }
 
 /// Verifies REQ-014 (CONOPS-005): the system reports a health snapshot
