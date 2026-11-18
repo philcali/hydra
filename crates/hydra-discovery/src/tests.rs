@@ -7,10 +7,12 @@ use mbse::links_to;
 
 mbse_graph::collect_test!();
 
+#[mbse::mbse_exempt("test helper — not a model node")]
 fn run<F: std::future::Future>(fut: F) -> F::Output {
     tokio::runtime::Runtime::new().unwrap().block_on(fut)
 }
 
+#[mbse::mbse_exempt("test helper — not a model node")]
 fn device(address: &str, vendor: &str) -> DiscoveredDevice {
     DiscoveredDevice {
         address: address.into(),

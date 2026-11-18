@@ -13,10 +13,12 @@ use mbse::links_to;
 
 mbse_graph::collect_test!();
 
+#[mbse::mbse_exempt("test helper — not a model node")]
 fn run<F: std::future::Future>(fut: F) -> F::Output {
     tokio::runtime::Runtime::new().unwrap().block_on(fut)
 }
 
+#[mbse::mbse_exempt("test helper — not a model node")]
 fn online_device(latency_ms: u64) -> Arc<SimDevice> {
     Arc::new(SimDevice::new(latency_ms))
 }

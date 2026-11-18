@@ -73,6 +73,8 @@ CREATE INDEX IF NOT EXISTS idx_audit_action ON audit_records(action);
 CREATE INDEX IF NOT EXISTS idx_audit_ts ON audit_records(ts_ms);
 "#;
 
+#[links_to("REQ-038", component = "ARCH-AUDIT-SQLITE")]
+#[links_to("REQ-039", component = "ARCH-AUDIT-SQLITE")]
 fn record_from_row(row: &rusqlite::Row) -> rusqlite::Result<AuditRecord> {
     let domain: String = row.get(0)?;
     let ts_ms: i64 = row.get(8)?;

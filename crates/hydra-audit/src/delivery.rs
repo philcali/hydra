@@ -119,7 +119,12 @@ impl AuditHttp for RecordingAuditHttp {
     }
 }
 
-impl AuditHttp for std::sync::Arc<RecordingAuditHttp> {
+/// A shared handle to the recording stand-in, so a test can keep observing
+/// the pushed requests after the transport has taken ownership of the client.
+#[mbse_exempt("test stand-in — not a model node")]
+type SharedAuditHttp = std::sync::Arc<RecordingAuditHttp>;
+
+impl AuditHttp for SharedAuditHttp {
     fn post(&self, url: &str, body: &str) -> Result<u16, AuditError> {
         RecordingAuditHttp::post(self.as_ref(), url, body)
     }

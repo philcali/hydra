@@ -111,6 +111,7 @@ impl Default for AclEngine {
 }
 
 /// `*` at the end of a pattern matches any suffix.
+#[links_to("REQ-002", component = "ARCH-AUTH")]
 fn matches_pattern(pattern: &str, value: &str) -> bool {
     if let Some(prefix) = pattern.strip_suffix('*') {
         value.starts_with(prefix)

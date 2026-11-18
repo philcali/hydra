@@ -16,6 +16,7 @@ const AUDIENCE: &str = "hydra-api";
 const FUTURE: u64 = 4_102_444_800; // 2100-01-01
 const NOW: u64 = 1_700_000_000;
 
+#[mbse::mbse_exempt("test helper — not a model node")]
 fn claims(principal: &str, roles: &[&str], exp: u64) -> String {
     serde_json::json!({
         "iss": ISSUER,
@@ -27,10 +28,12 @@ fn claims(principal: &str, roles: &[&str], exp: u64) -> String {
     .to_string()
 }
 
+#[mbse::mbse_exempt("test helper — not a model node")]
 fn pool() -> IdentityPool {
     IdentityPool::new().register(OidcProvider::new(ISSUER, AUDIENCE))
 }
 
+#[mbse::mbse_exempt("test helper — not a model node")]
 fn run<F: std::future::Future>(fut: F) -> F::Output {
     tokio::runtime::Runtime::new().unwrap().block_on(fut)
 }
@@ -183,6 +186,7 @@ fn test_operation_scoped_to_principal() {
 }
 
 /// A deliberately slow identity source, for the timeout test.
+#[mbse::mbse_exempt("test stand-in — not a model node")]
 struct SlowProvider;
 
 #[async_trait::async_trait]

@@ -101,6 +101,9 @@ What it establishes, and what it would flag if the model and code ever drift:
 |---|---|---|
 | Every requirement has implementing code | 41/41 ✓ | `orphan` — a requirement with no code |
 | Every requirement is verified by a test | 41/41 ✓ | `unverified` — implemented, untested |
+| Every requirement has a falsifiable basis — a pinned parameter or a declared `metadata.acceptance` | 41/41 ✓ | `req-unverifiable` — verification attested by links alone |
+| A `verifies` test carries an assertion that can fail | ✓ | `vacuous-test` — a claim the test cannot support |
+| A quantity named in the design is pinned to a parameter, directly or downstream | ✓ (CONOPS-005's "thousand" is pinned via REQ-014) | `req-unpinned-quantity` — a number in prose the model never pins (info) |
 | Every public item is linked to the model or exempted with a reason | ✓ (advisory warnings for test helpers) | `unlinked` |
 | Every parameter bound is enforced by code that enforces the right value | 11/11 ✓, witness present | `param-unenforced` / value drift |
 | Model edges resolve to real nodes | ✓ (dangling edges are hard errors) | build check fails |
@@ -108,15 +111,20 @@ What it establishes, and what it would flag if the model and code ever drift:
 Actual output from this tree:
 
 ```
+  findings
+    ℹ [req-unpinned-quantity] CONOPS-005: intent names a quantity (thousand), pinned downstream by REQ-014 → P-CATALOG-SYNC-LAG, REQ-014 → P-CATALOG-WRITE-LATENCY, REQ-014 → P-SCALE-DEVICE-COUNT (+1 more)
+
   coverage  41/41 requirements implemented · 41/41 verified
-  result    0 error(s), 0 warning(s), 0 info — PASS
-  design regime    P-ACL-EVAL-LATENCY=100  ∧  P-AUDIT-FLUSH-LATENCY=100  ∧  P-AUDIT-RETENTION=10000
-                   ∧  P-AUTH-TIMEOUT=5000  ∧  P-CATALOG-SYNC-LAG=5  ∧  P-CATALOG-WRITE-LATENCY=100
-                   ∧  P-DISCOVERY-INTERVAL=60  ∧  P-DRIVER-TIMEOUT=3000  ∧  P-METRIC-STREAM-LAG=1000
-                   ∧  P-SCALE-DEVICE-COUNT=1000  ∧  P-TELEM-INTERVAL=30
+  result    0 error(s), 0 warning(s), 1 info — PASS
+  design regime    P-ACL-EVAL-LATENCY=100  ∧  P-AUDIT-FLUSH-LATENCY=100  ∧  P-AUDIT-RETENTION=10000  ∧  P-AUTH-TIMEOUT=5000  ∧  P-CATALOG-SYNC-LAG=5  ∧  P-CATALOG-WRITE-LATENCY=100  ∧  P-DISCOVERY-INTERVAL=60  ∧  P-DRIVER-TIMEOUT=3000  ∧  P-METRIC-STREAM-LAG=1000  ∧  P-SCALE-DEVICE-COUNT=1000  ∧  P-TELEM-INTERVAL=30
+  L3 anchor      cargo-mbse anchor — 11 param · 0 behavioral · witness present
 ```
 
-The **design regime** line is the witness: a coherent operating point where every
+The V&V rules read each requirement's verification tier — **falsifiable**
+(a parameter in its closure the machine can objectively fail), **criterion**
+(a declared `metadata.acceptance` stating how it is judged), or **attested**
+(links only) — and `req-unverifiable` fires on the attested tier. The
+**design regime** line is the witness: a coherent operating point where every
 code-enforced value satisfies its model bound. Exit codes are CI-friendly
 (0 pass / 1 fail / 2 config), and `--deny orphan,unverified` promotes any advisory
 rule to a hard error when you want the gate strict.

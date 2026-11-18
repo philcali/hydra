@@ -10,11 +10,13 @@ use mbse::links_to;
 
 mbse_graph::collect_test!();
 
+#[mbse::mbse_exempt("test helper — not a model node")]
 fn run<F: std::future::Future>(fut: F) -> F::Output {
     tokio::runtime::Runtime::new().unwrap().block_on(fut)
 }
 
 /// A pollable source with canned points.
+#[mbse::mbse_exempt("test stand-in — not a model node")]
 struct FakeSource {
     points: Vec<TelemetryPoint>,
 }
@@ -26,6 +28,7 @@ impl TelemetrySource for FakeSource {
     }
 }
 
+#[mbse::mbse_exempt("test helper — not a model node")]
 fn point(device: &str, metric: &str, value: f64) -> TelemetryPoint {
     TelemetryPoint {
         device: device.into(),
@@ -171,6 +174,7 @@ fn test_driver_source_pulls_per_device() {
 
 // ── Data-plane metric fan-out (push targets) — REQ-027..REQ-029 ────────
 
+#[mbse::mbse_exempt("test helper — not a model node")]
 fn event_for(device: &str) -> MetricEvent {
     MetricEvent {
         kind: MetricKind::DeviceRecovered,

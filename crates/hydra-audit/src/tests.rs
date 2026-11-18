@@ -18,10 +18,12 @@ mbse_graph::collect_test!();
 
 static TEST_NO: AtomicU64 = AtomicU64::new(0);
 
+#[mbse::mbse_exempt("test helper — not a model node")]
 fn next_test_no() -> u64 {
     TEST_NO.fetch_add(1, Ordering::SeqCst)
 }
 
+#[mbse::mbse_exempt("test helper — not a model node")]
 fn temp_path(ext: &str) -> String {
     std::env::temp_dir()
         .join(format!("hydra-audit-{}-{}.{}", std::process::id(), next_test_no(), ext))
@@ -29,6 +31,7 @@ fn temp_path(ext: &str) -> String {
         .to_string()
 }
 
+#[mbse::mbse_exempt("test helper — not a model node")]
 fn engine(retention: u64) -> AuditEngine {
     let path = temp_path("db");
     let _ = std::fs::remove_file(&path);

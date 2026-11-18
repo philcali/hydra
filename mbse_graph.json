@@ -88,7 +88,11 @@
       "text": "Hydra must expose an API with operations for device management.",
       "metadata": {
         "status": "accepted",
-        "owner": "platform"
+        "owner": "platform",
+        "acceptance": {
+          "method": "test",
+          "criterion": "The control-plane API executes operations for authenticated operators \u2014 creating a device, listing devices, and adding to a fleet \u2014 and rejects unauthenticated requests as Unauthorized and authenticated requests lacking the required role as Forbidden."
+        }
       }
     },
     {
@@ -106,7 +110,11 @@
       "text": "Hydra must allow grouping devices into categories called fleets.",
       "metadata": {
         "status": "accepted",
-        "owner": "platform"
+        "owner": "platform",
+        "acceptance": {
+          "method": "test",
+          "criterion": "A registered device can be added to a named fleet, and that fleet appears in the fleet listing."
+        }
       }
     },
     {
@@ -390,7 +398,11 @@
       "text": "In the absence of an external identity provider, Hydra must manage local identities statefully: create, read, update, and delete identities (principals).",
       "metadata": {
         "status": "accepted",
-        "owner": "auth"
+        "owner": "auth",
+        "acceptance": {
+          "method": "test",
+          "criterion": "Local identities can be created, read with their roles, and deleted; lookups of unknown identities return nothing, and deleting an already-deleted identity is a no-op."
+        }
       }
     },
     {
@@ -399,7 +411,11 @@
       "text": "Hydra must manage credentials for local identities \u2014 set, rotate, and verify \u2014 statefully.",
       "metadata": {
         "status": "accepted",
-        "owner": "auth"
+        "owner": "auth",
+        "acceptance": {
+          "method": "test",
+          "criterion": "Credentials for a local identity can be set, verified, and rotated \u2014 after rotation the old credential no longer verifies, the new one does, and only the hash is stored, never the plaintext."
+        }
       }
     },
     {
@@ -408,7 +424,11 @@
       "text": "Hydra must assign and modify roles on local identities, reflected in ACL decisions.",
       "metadata": {
         "status": "accepted",
-        "owner": "auth"
+        "owner": "auth",
+        "acceptance": {
+          "method": "test",
+          "criterion": "Assigning or removing a role on a local identity changes the ACL decision for that identity \u2014 denied before promotion, allowed after, denied again after demotion."
+        }
       }
     },
     {
@@ -417,7 +437,11 @@
       "text": "Hydra must persist auth state (identities, credentials, and roles) so it survives a restart.",
       "metadata": {
         "status": "accepted",
-        "owner": "auth"
+        "owner": "auth",
+        "acceptance": {
+          "method": "test",
+          "criterion": "Identities, credentials, and roles persist across a save and a reopen from disk \u2014 a restarted service still authenticates the identity with its credential and grants its roles."
+        }
       }
     },
     {
@@ -431,7 +455,11 @@
       "text": "Hydra must issue device certificates from a trusted certificate authority (local CA signing).",
       "metadata": {
         "status": "accepted",
-        "owner": "auth"
+        "owner": "auth",
+        "acceptance": {
+          "method": "test",
+          "criterion": "An issued device certificate carries a serial, the requested subject, the CA's name as issuer, and a signature, and verifies successfully against the issuing CA."
+        }
       }
     },
     {
@@ -440,7 +468,11 @@
       "text": "Hydra must distribute issued device certificates to edge devices.",
       "metadata": {
         "status": "accepted",
-        "owner": "auth"
+        "owner": "auth",
+        "acceptance": {
+          "method": "test",
+          "criterion": "An issued certificate is delivered to its device and marked distributed; distribution fails for a device with no issued certificate."
+        }
       }
     },
     {
@@ -449,7 +481,11 @@
       "text": "Hydra must revoke device certificates and reject revoked ones (revocation list).",
       "metadata": {
         "status": "accepted",
-        "owner": "auth"
+        "owner": "auth",
+        "acceptance": {
+          "method": "test",
+          "criterion": "A revoked certificate is placed on the revocation list and fails verification, while a reissued certificate for the same device still verifies."
+        }
       }
     },
     {
@@ -481,7 +517,11 @@
       "text": "The data plane must deliver metric events to registered delivery targets (push targets / endpoints).",
       "metadata": {
         "status": "accepted",
-        "owner": "telemetry"
+        "owner": "telemetry",
+        "acceptance": {
+          "method": "test",
+          "criterion": "A metric event is delivered to each registered delivery target entitled to it, and the delivery reports the number of targets reached."
+        }
       }
     },
     {
@@ -490,7 +530,11 @@
       "text": "Delivery targets must be registered and scoped to the devices/events they are entitled to receive.",
       "metadata": {
         "status": "accepted",
-        "owner": "telemetry"
+        "owner": "telemetry",
+        "acceptance": {
+          "method": "test",
+          "criterion": "Each delivery target receives only the events for the devices it is scoped to; an event for a device no target claims reaches no target."
+        }
       }
     },
     {
@@ -499,7 +543,11 @@
       "text": "The data plane's metric delivery must be a separate, independently scalable unit from the stateless control plane.",
       "metadata": {
         "status": "accepted",
-        "owner": "telemetry"
+        "owner": "telemetry",
+        "acceptance": {
+          "method": "test",
+          "criterion": "Multiple fan-out instances deliver independently to their own targets with no shared state between them."
+        }
       }
     },
     {
@@ -522,7 +570,11 @@
       "text": "A delivery target's transport must be pluggable (an adapter boundary), so the same target can push events in-process or to a remote HTTP endpoint.",
       "metadata": {
         "status": "accepted",
-        "owner": "telemetry"
+        "owner": "telemetry",
+        "acceptance": {
+          "method": "test",
+          "criterion": "A delivery target works identically with an in-process callback transport and an HTTP transport \u2014 the latter serializing the event to JSON and POSTing it to its endpoint \u2014 each honoring its device scope."
+        }
       }
     },
     {
@@ -563,7 +615,11 @@
       "text": "A consumer of the metric stream must react to a discovery event to drive a provisioning workflow \u2014 registering the device and assigning it to a fleet.",
       "metadata": {
         "status": "accepted",
-        "owner": "platform"
+        "owner": "platform",
+        "acceptance": {
+          "method": "test",
+          "criterion": "A discovery event on the metric stream triggers provisioning \u2014 the device is registered in the catalog with its vendor and assigned to a fleet \u2014 while events of other kinds are ignored."
+        }
       }
     },
     {
@@ -572,7 +628,11 @@
       "text": "The fleet a discovered device is assigned to must be determined by a data-driven assignment policy (routing by vendor/type to a fleet), with a default fallback.",
       "metadata": {
         "status": "accepted",
-        "owner": "platform"
+        "owner": "platform",
+        "acceptance": {
+          "method": "test",
+          "criterion": "The fleet assigned to a discovered device is determined by data-driven rules matched on vendor and device type, falling back to a default fleet when no rule matches."
+        }
       }
     },
     {

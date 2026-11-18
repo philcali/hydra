@@ -24,6 +24,7 @@ const AUDIENCE: &str = "hydra-api";
 const NOW: u64 = 1_700_000_000;
 const FUTURE: u64 = 4_102_444_800;
 
+#[mbse::mbse_exempt("test helper — not a model node")]
 fn claims(roles: &[&str]) -> String {
     serde_json::json!({
         "iss": ISSUER,
@@ -35,18 +36,21 @@ fn claims(roles: &[&str]) -> String {
     .to_string()
 }
 
+#[mbse::mbse_exempt("test helper — not a model node")]
 fn run<F: std::future::Future>(fut: F) -> F::Output {
     tokio::runtime::Runtime::new().unwrap().block_on(fut)
 }
 
 static TEST_NO: std::sync::atomic::AtomicU64 = std::sync::atomic::AtomicU64::new(0);
 
+#[mbse::mbse_exempt("test helper — not a model node")]
 fn next_test_no() -> u64 {
     TEST_NO.fetch_add(1, std::sync::atomic::Ordering::SeqCst)
 }
 
 /// A fresh audit engine (REQ-038: configurable at startup) over a temp
 /// SQLite store (REQ-039: queryable).
+#[mbse::mbse_exempt("test helper — not a model node")]
 fn audit_engine(prefix: &str) -> AuditEngine {
     let path = std::env::temp_dir().join(format!(
         "hydra-audit-{prefix}-{}-{}.db",
@@ -65,6 +69,7 @@ fn audit_engine(prefix: &str) -> AuditEngine {
 
 /// Shared auth: OIDC for operators, certificates for devices, ACL for all
 /// three planes' actions.
+#[mbse::mbse_exempt("test helper — not a model node")]
 fn auth() -> AuthService {
     let acl = AclEngine::new()
         .allow_role("operator", "catalog:*", "catalog/devices*")
@@ -78,6 +83,7 @@ fn auth() -> AuthService {
 }
 
 /// Control-plane gateway (catalog + fleet ops) over a fresh durable store.
+#[mbse::mbse_exempt("test helper — not a model node")]
 async fn control_gateway() -> ApiGateway {
     let n = next_test_no();
     let path = std::env::temp_dir()
@@ -96,6 +102,7 @@ async fn control_gateway() -> ApiGateway {
 /// Data-plane gateway (device ops) over a fresh store, with one device
 /// already created for the given (type, vendor). Returns the gateway and the
 /// device id.
+#[mbse::mbse_exempt("test helper — not a model node")]
 async fn data_gateway(device_type: &str, vendor: &str) -> (DataPlaneGateway, String) {
     let n = next_test_no();
     let path = std::env::temp_dir()

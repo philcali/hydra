@@ -134,7 +134,10 @@ impl HttpClient for RecordingHttpClient {
 
 /// Share one recording client between the target and the test (a shared
 /// handle to observe the pushed requests).
-impl HttpClient for std::sync::Arc<RecordingHttpClient> {
+#[mbse_exempt("test stand-in — not a model node")]
+type SharedHttpClient = std::sync::Arc<RecordingHttpClient>;
+
+impl HttpClient for SharedHttpClient {
     fn post(&self, url: &str, body: &str) -> Result<u16, HttpError> {
         self.as_ref().post(url, body)
     }

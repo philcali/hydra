@@ -15,6 +15,7 @@ mbse_graph::collect_test!();
 
 static TEST_NO: std::sync::atomic::AtomicU64 = std::sync::atomic::AtomicU64::new(0);
 
+#[mbse::mbse_exempt("test helper — not a model node")]
 async fn system() -> HydraSystem {
     let test_no = TEST_NO.fetch_add(1, std::sync::atomic::Ordering::SeqCst);
     let config = HydraConfig {
@@ -33,6 +34,7 @@ async fn system() -> HydraSystem {
     HydraSystem::bootstrap(config).await.unwrap()
 }
 
+#[mbse::mbse_exempt("test helper — not a model node")]
 fn found_plc(address: &str, vendor: &str) -> DiscoveredDevice {
     DiscoveredDevice {
         address: address.into(),
