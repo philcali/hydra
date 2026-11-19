@@ -362,8 +362,7 @@ async fn test_callback_delivery_receives_records() {
     let transport = CallbackAuditTransport::new(move |record: crate::record::AuditRecord| {
         sink.lock().unwrap().push(record);
     });
-    let audit = engine(AUDIT_RETENTION_DEFAULT);
-    // Rebuild with the delivery target.
+    // Build the engine with the delivery target.
     let path = temp_path("db");
     let _ = std::fs::remove_file(&path);
     let store = SqliteAuditStore::open(&path).unwrap();

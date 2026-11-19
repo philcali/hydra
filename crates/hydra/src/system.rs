@@ -245,12 +245,54 @@ impl HydraSystem {
     /// scans the edge network and emits `DeviceDiscovered` events to the
     /// stream (REQ-033); the provisioner — subscribed before the scan —
     /// reacts to each and provisions it (register, bind driver, assign fleet
-    /// per policy; REQ-034/035). Returns the number of devices provisioned.
+    /// per policy; REQ-034/035). Provisioned devices are then wired into
+    /// per-device telemetry collection (CONOPS-002's "begin telemetry
+    /// collection") and each provisioning action is recorded in the
+    /// control-plane audit log (REQ-036). Returns the number of devices
+    /// provisioned.
     pub async fn run_discovery_cycle(&mut self) -> usize {
         // Discovery scans and emits events to the stream.
         let _fresh = self.discovery.run_cycle().await;
         // The provisioner processes the pending discovery events.
-        self.provisioner.drain().await
+        let provisioned = self.provisioner.drain().await;
+        for p in &provisioned {
+            if p.driver_bound {
+                // Wire the provisioned device into per-device telemetry
+                // collection (CONOPS-002): bind it to its matched driver.
+                if let Some(dev) = self
+                    .catalog
+                    .get_device(&p.device_id)
+                    .await
+                    .ok()
+                    .flatten()
+                {
+                    if let Ok(driver) = self
+                        .comm
+                        .registry()
+                        .resolve(&dev.device_type, &dev.vendor)
+                    {
+                        self.telemetry.attach(p.device_id.clone(), driver);
+                    }
+                }
+            }
+            // Record the provisioning action (REQ-036), success or not.
+            let _ = self
+                .audit
+                .append(
+                    AuditDomain::ControlPlane,
+                    "system",
+                    "provisioning:register",
+                    &format!("catalog/devices/{}", p.device_id),
+                    &format!("fleet={}", p.fleet_id),
+                    if p.driver_bound {
+                        "ok"
+                    } else {
+                        "error: no driver matched"
+                    },
+                )
+                .await;
+        }
+        provisioned.len()
     }
 
     /// CONOPS-004: a driver lost communication with a device. Record the

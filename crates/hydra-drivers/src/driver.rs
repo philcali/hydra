@@ -101,7 +101,7 @@ pub enum DriverError {
     Unreachable,
     #[error("no driver registered for {device_type}/{vendor}")]
     NotResolved { device_type: String, vendor: String },
-    #[error("registry at capacity (P-SCALE-DEVICE-COUNT)")]
+    #[error("driver registry at slot capacity")]
     CapacityExceeded,
     #[error("device rejected the configuration: {0}")]
     Rejected(String),

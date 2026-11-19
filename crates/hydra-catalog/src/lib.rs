@@ -18,7 +18,10 @@ pub mod catalog;
 pub mod fleet;
 pub mod discovery;
 
-pub use storage::{DeviceStore, Device, DeviceFilters, DeviceUpdates, Fleet, DiscoveryInfo, PostgresStore, SqliteStore, StoreError};
+pub use storage::{
+    DeviceStore, Device, DeviceFilters, DeviceUpdates, Fleet, DiscoveryInfo, MAX_DEVICES_PER_NODE,
+    PostgresStore, SqliteStore, StoreError,
+};
 pub use catalog::CatalogService;
 pub use fleet::FleetManager;
 pub use discovery::DiscoveryEngine;

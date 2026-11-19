@@ -187,24 +187,24 @@ impl Provisioner {
     }
 
     /// Process pending discovery events (non-blocking), provisioning each
-    /// (REQ-034). Returns the number provisioned. Used for a single,
-    /// testable loop cycle.
-    pub async fn drain(&mut self) -> usize {
+    /// (REQ-034). Returns the devices provisioned in this cycle. Used for
+    /// a single, testable loop cycle.
+    pub async fn drain(&mut self) -> Vec<Provisioned> {
         let mut pending = Vec::new();
         if let Some(rx) = &mut self.receiver {
             while let Ok(event) = rx.try_recv() {
                 pending.push(event);
             }
         }
-        let mut n = 0;
+        let mut provisioned = Vec::new();
         for event in pending {
             if matches!(event.kind, MetricKind::DeviceDiscovered { .. }) {
-                if self.handle_discovered(&event).await.is_ok() {
-                    n += 1;
+                if let Ok(p) = self.handle_discovered(&event).await {
+                    provisioned.push(p);
                 }
             }
         }
-        n
+        provisioned
     }
 
     /// The infinite consumer loop (REQ-034): process events until the stream

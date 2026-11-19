@@ -151,9 +151,11 @@ fn test_fidelity_rejected_at_driver() {
     assert!(matches!(err, DriverError::Rejected(_)));
 }
 
-/// Verifies REQ-014 (P-SCALE-DEVICE-COUNT): the registry enforces the
-/// per-node device capacity.
-#[links_to("REQ-014")]
+/// The registry's slot guard rejects a (type,vendor) registration beyond
+/// its capacity. This is a code-level guard on *driver slots* — device
+/// scale (REQ-014 → P-SCALE-DEVICE-COUNT) is enforced in the catalog and
+/// verified by the e2e scale test.
+#[mbse::mbse_exempt("code-level driver-slot guard — not a model node; device scale (REQ-014) is verified by the e2e scale test")]
 #[test]
 fn test_capacity_enforced() {
     let mut registry = DriverRegistry::with_capacity(2);

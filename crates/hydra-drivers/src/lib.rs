@@ -6,7 +6,7 @@
 //! - REQ-011 — communicating with heterogeneous device types and vendors
 //! - REQ-012 — operation degradation when programmatic control is unavailable
 //! - REQ-018 — per-driver fidelity: which operations a device supports
-//! - P-DRIVER-TIMEOUT, P-SCALE-DEVICE-COUNT (parameters)
+//! - P-DRIVER-TIMEOUT (parameter)
 
 mbse_graph::collect_test!();
 

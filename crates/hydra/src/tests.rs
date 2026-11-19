@@ -122,9 +122,10 @@ async fn test_degradation_is_audited() {
             && r.domain == AuditDomain::DataPlane));
 }
 
-/// Verifies REQ-014 (CONOPS-005): the system reports a health snapshot
-/// for scaling coordination.
-#[links_to("REQ-014")]
+/// Health snapshot of a 1-device system (ARCH-SYS-MGMT monitoring behavior)
+/// — not a verification of device scale. REQ-014 scale is verified by the
+/// e2e scale test (`e2e::test_e2e_scale_to_a_thousand_devices`).
+#[mbse::mbse_exempt("health-snapshot behavior of ARCH-SYS-MGMT — no requirement node; scale (REQ-014) is verified by the e2e scale test")]
 #[tokio::test]
 async fn test_status_snapshot() {
     let mut sys = system().await;
@@ -322,7 +323,7 @@ async fn test_fleet_assignment_is_policy_driven() {
 #[tokio::test]
 async fn test_discovery_loop_provisions_devices() {
     use hydra_catalog::DeviceFilters;
-    use hydra_discovery::{MdnsSource, ScanSource};
+    use hydra_discovery::MdnsSource;
 
     let mut sys = system().await;
     // A simulated device on the edge network.

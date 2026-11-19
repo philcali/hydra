@@ -338,6 +338,7 @@ dependencies = [
  "hydra-telemetry",
  "mbse",
  "mbse-graph",
+ "rusqlite",
  "serde",
  "serde_json",
  "thiserror",

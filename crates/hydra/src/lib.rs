@@ -10,11 +10,16 @@
 
 mbse_graph::collect_test!();
 
+pub mod flow;
 pub mod provisioning;
 pub mod system;
 
+pub use flow::{FleetFlowOp, FlowOutcome, FlowResult};
 pub use provisioning::{FleetPolicy, FleetRule, Provisioned, Provisioner, ProvisionError};
 pub use system::{HydraConfig, HydraSystem, SystemError, SystemStatus};
 
 #[cfg(test)]
 mod tests;
+
+#[cfg(test)]
+mod e2e;

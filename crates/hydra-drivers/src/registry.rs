@@ -1,36 +1,40 @@
-//! Driver registry (REQ-011) with the per-node device capacity
-//! bound (REQ-014 → P-SCALE-DEVICE-COUNT).
+//! Driver registry (REQ-011).
+//!
+//! Note: the registry is keyed by `(device_type, vendor)`, so its capacity
+//! bounds the number of **driver slots** — a code-level guard, *not* the
+//! device scale bound. P-SCALE-DEVICE-COUNT (REQ-014) counts devices and
+//! is enforced in the catalog (`hydra_catalog::storage::MAX_DEVICES_PER_NODE`).
 
 use std::sync::Arc;
 
 use crate::driver::{Driver, DriverError};
 
 use mbse::links_to;
+use mbse::mbse_exempt;
 
-/// Maximum devices per Hydra cluster node (P-SCALE-DEVICE-COUNT,
-/// bounded by REQ-014). Enforced by `DriverRegistry::register`.
-#[links_to("REQ-014", parameter = "P-SCALE-DEVICE-COUNT", value = 1000.0)]
-pub const MAX_DEVICES_PER_NODE: usize = 1000;
+/// Maximum driver slots in a registry (code-level guard). This is *not*
+/// the device scale bound — see the module docs.
+#[mbse_exempt("code-level guard on (type,vendor) driver slots — not a model node; device scale is P-SCALE-DEVICE-COUNT, enforced in the catalog")]
+pub const MAX_DRIVER_SLOTS: usize = 1000;
 
 /// Registry of heterogeneous drivers, keyed by `(device_type, vendor)`
-/// (REQ-011). Enforces the per-node device capacity (REQ-014).
+/// (REQ-011).
 #[links_to("REQ-011", component = "ARCH-DRIVERS")]
-#[links_to("REQ-014", component = "ARCH-DRIVERS")]
 pub struct DriverRegistry {
     drivers: std::collections::HashMap<(String, String), Arc<dyn Driver>>,
     capacity: usize,
 }
 
 impl DriverRegistry {
-    /// New registry with the model's capacity (`MAX_DEVICES_PER_NODE`).
+    /// New registry with the default slot capacity (`MAX_DRIVER_SLOTS`).
     pub fn new() -> Self {
         Self {
             drivers: std::collections::HashMap::new(),
-            capacity: MAX_DEVICES_PER_NODE,
+            capacity: MAX_DRIVER_SLOTS,
         }
     }
 
-    /// New registry with an explicit per-node capacity.
+    /// New registry with an explicit slot capacity.
     pub fn with_capacity(capacity: usize) -> Self {
         Self {
             drivers: std::collections::HashMap::new(),
@@ -68,7 +72,7 @@ impl DriverRegistry {
         self.drivers.is_empty()
     }
 
-    /// The per-node capacity in force (P-SCALE-DEVICE-COUNT).
+    /// The driver-slot capacity in force (code-level guard; see module docs).
     pub fn capacity(&self) -> usize {
         self.capacity
     }

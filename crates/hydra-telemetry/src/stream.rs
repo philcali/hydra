@@ -92,6 +92,12 @@ impl MetricStream {
         self.tx.receiver_count() > 0
     }
 
+    /// The number of live subscribers (bridges can wait for their
+    /// subscription before publishing, e.g. in tests).
+    pub fn subscriber_count(&self) -> usize {
+        self.tx.receiver_count()
+    }
+
     /// Subscribe for reactive integration.
     pub fn subscribe(&self) -> tokio::sync::broadcast::Receiver<MetricEvent> {
         self.tx.subscribe()

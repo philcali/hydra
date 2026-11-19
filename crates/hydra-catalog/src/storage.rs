@@ -17,6 +17,14 @@ mbse_graph::collect_test!();
 #[links_to("REQ-014", parameter = "P-CATALOG-WRITE-LATENCY", value = 100.0)]
 pub const CATALOG_WRITE_LATENCY_MS: u64 = 100;
 
+/// Maximum devices a single cluster node's catalog may hold
+/// (P-SCALE-DEVICE-COUNT, bounded by REQ-014). The catalog is where the
+/// device population lives, so this is where the scale bound is enforced
+/// (see `SqliteStore::create_device`). Verified by the end-to-end scale
+/// test (`e2e::test_e2e_scale_to_a_thousand_devices`).
+#[links_to("REQ-014", parameter = "P-SCALE-DEVICE-COUNT", value = 1000.0)]
+pub const MAX_DEVICES_PER_NODE: usize = 1000;
+
 /// Trait representing the storage interface (ARCH-STORAGE component).
 /// 
 /// Two implementations exist:
@@ -125,6 +133,8 @@ pub enum StoreError {
     NotFound(String),
     #[error("store error: {0}")]
     Internal(String),
+    #[error("catalog at capacity: {capacity} devices (P-SCALE-DEVICE-COUNT)")]
+    CapacityExceeded { capacity: usize },
 }
 
 /// SQLite implementation (ARCH-STORAGE-SQLITE).
@@ -189,9 +199,23 @@ impl SqliteStore {
     
     /// Create a new device in the catalog.
     /// Satisfies REQ-007: catalog management (create).
+    ///
+    /// Enforces the per-node device scale bound (REQ-014 →
+    /// P-SCALE-DEVICE-COUNT): once the catalog holds `MAX_DEVICES_PER_NODE`
+    /// devices, new devices are rejected. `register_device` routes through
+    /// here, so both the onboarding and provisioning paths are bounded.
     pub async fn create_device(&self, device: Device) -> Result<Device, StoreError> {
         let conn = self.conn.lock().await;
-        
+
+        let count: i64 = conn
+            .query_row("SELECT COUNT(*) FROM devices", [], |row| row.get(0))
+            .map_err(|e| StoreError::Internal(e.to_string()))?;
+        if (count as usize) >= MAX_DEVICES_PER_NODE {
+            return Err(StoreError::CapacityExceeded {
+                capacity: MAX_DEVICES_PER_NODE,
+            });
+        }
+
         let metadata_json = serde_json::to_string(&device.metadata)
             .map_err(|e| StoreError::Internal(e.to_string()))?;
         

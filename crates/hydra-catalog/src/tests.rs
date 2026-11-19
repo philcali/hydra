@@ -1,7 +1,10 @@
 //! Tests for hydra-catalog — verifies requirements via `#[links_to]`.
 
 use super::*;
-use crate::storage::{Device, DeviceFilters, DiscoveryInfo, PostgresStore, SqliteStore};
+use crate::storage::{
+    Device, DeviceFilters, DiscoveryInfo, PostgresStore, SqliteStore, StoreError,
+    MAX_DEVICES_PER_NODE,
+};
 use mbse::links_to;
 
 mbse_graph::collect_test!();
@@ -66,9 +69,10 @@ fn test_discovery_register() {
     });
 }
 
-/// Verifies REQ-014: storage interface (DeviceStore trait).
-/// Tests that both implementations satisfy the trait.
-#[links_to("REQ-014")]
+/// Compile-time conformance only: `SqliteStore` implements `DeviceStore`.
+/// Not a behavior verification — device scale (REQ-014 →
+/// P-SCALE-DEVICE-COUNT) is verified by the e2e scale test.
+#[mbse::mbse_exempt("compile-time trait conformance — not a behavior verification; scale behavior is covered by the e2e scale test")]
 #[test]
 fn test_sqlite_store_implements_device_store() {
     let store = SqliteStore::new(":memory:");
@@ -76,12 +80,62 @@ fn test_sqlite_store_implements_device_store() {
     let _: &dyn DeviceStore = &store;
 }
 
-/// Verifies REQ-014: PostgresStore implements DeviceStore.
-#[links_to("REQ-014")]
+/// Compile-time conformance only: `PostgresStore` implements `DeviceStore`.
+/// (The store itself is an unimplemented stub — see its module docs.)
+#[mbse::mbse_exempt("compile-time trait conformance — not a behavior verification; the Postgres store is a stub")]
 #[test]
 fn test_postgres_store_implements_device_store() {
     let store = PostgresStore::new("postgres://localhost/test");
     let _: &dyn DeviceStore = &store;
+}
+
+/// Verifies REQ-014 (P-SCALE-DEVICE-COUNT): the catalog enforces the
+/// per-node device bound — it accepts exactly `MAX_DEVICES_PER_NODE`
+/// devices and rejects the next one.
+#[links_to("REQ-014")]
+#[test]
+fn test_catalog_enforces_device_capacity() {
+    let store = SqliteStore::new(":memory:");
+    let rt = tokio::runtime::Runtime::new().unwrap();
+    rt.block_on(async {
+        store.init().await.unwrap();
+        for i in 0..MAX_DEVICES_PER_NODE {
+            store
+                .create_device(Device {
+                    id: format!("dev-{i}"),
+                    name: format!("Device {i}"),
+                    device_type: if i % 2 == 0 { "plc" } else { "sensor" }.into(),
+                    vendor: if i % 2 == 0 { "acme" } else { "senselab" }.into(),
+                    status: "active".into(),
+                    fleet_ids: vec![],
+                    metadata: serde_json::json!({}),
+                })
+                .await
+                .unwrap();
+        }
+        // The catalog holds exactly the bound…
+        let all = store.list_devices(DeviceFilters::default()).await.unwrap();
+        assert_eq!(all.len(), MAX_DEVICES_PER_NODE);
+        // …and the device beyond it is rejected, not silently accepted.
+        let err = store
+            .create_device(Device {
+                id: "dev-overflow".into(),
+                name: "Overflow".into(),
+                device_type: "plc".into(),
+                vendor: "acme".into(),
+                status: "active".into(),
+                fleet_ids: vec![],
+                metadata: serde_json::json!({}),
+            })
+            .await
+            .unwrap_err();
+        assert!(matches!(
+            err,
+            StoreError::CapacityExceeded {
+                capacity: MAX_DEVICES_PER_NODE
+            }
+        ));
+    });
 }
 
 /// Verifies REQ-007: catalog management (create + read back).
